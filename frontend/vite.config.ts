@@ -1,7 +1,8 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
+  base: '/', // ← ensures asset paths work on Vercel
   plugins: [react()],
   server: {
     port: 5173,
@@ -10,7 +11,10 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
-      '/health': { target: 'http://localhost:8000', changeOrigin: true },
+      '/health': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
     },
   },
-})
+});
