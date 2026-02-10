@@ -1,14 +1,30 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import re
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+
 from app.db import get_db
 from app.models.tenant import Tenant, User
-from app.auth.jwt import create_access_token, create_refresh_token, decode_token
+from app.auth.jwt import create_access_token
 from app.auth.password import hash_password, verify_password
-from app.schemas.auth import UserCreate, UserLogin, TokenResponse, RefreshIn
-from app.auth.deps import get_current_user
-import re
+from app.auth.cookies import (
+    set_refresh_cookie,
+    clear_refresh_cookie,
+    create_and_store_refresh_token,
+    consume_refresh_token,
+)
+from app.schemas.auth import UserCreate, UserLogin, TokenResponse
+
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+@router.post("/logout")
+def logout():
+    """Clear the HttpOnly refresh cookie so the client is logged out."""
+    response = JSONResponse(content={"detail": "Logged out"})
+    clear_refresh_cookie(response)
+    return response
 
 
 def _slug(name: str) -> str:
@@ -16,7 +32,17 @@ def _slug(name: str) -> str:
     return s[:64] if s else "tenant"
 
 
-@router.post("/register", response_model=TokenResponse)
+def _token_response(access_token: str, user_id: str, tenant_id: str, email: str) -> dict:
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": user_id,
+        "tenant_id": tenant_id,
+        "email": email,
+    }
+
+
+@router.post("/register")
 def register(data: UserCreate, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == data.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -39,16 +65,14 @@ def register(data: UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(tenant)
     db.refresh(user)
-    return TokenResponse(
-        access_token=create_access_token({"sub": user.id, "tenant_id": tenant.id}),
-        refresh_token=create_refresh_token({"sub": user.id}),
-        user_id=user.id,
-        tenant_id=tenant.id,
-        email=user.email,
-    )
+    access_token = create_access_token({"sub": user.id, "tenant_id": tenant.id})
+    refresh_token = create_and_store_refresh_token(db, user.id)
+    response = JSONResponse(content=_token_response(access_token, user.id, tenant.id, user.email))
+    set_refresh_cookie(response, refresh_token)
+    return response
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login")
 def login(data: UserLogin, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
     if not user or not user.hashed_password or not verify_password(data.password, user.hashed_password):
@@ -56,31 +80,39 @@ def login(data: UserLogin, db: Session = Depends(get_db)):
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
     if not tenant or not tenant.is_active:
         raise HTTPException(status_code=403, detail="Tenant inactive")
-    return TokenResponse(
-        access_token=create_access_token({"sub": user.id, "tenant_id": tenant.id}),
-        refresh_token=create_refresh_token({"sub": user.id}),
-        user_id=user.id,
-        tenant_id=tenant.id,
-        email=user.email,
-    )
+    access_token = create_access_token({"sub": user.id, "tenant_id": tenant.id})
+    refresh_token = create_and_store_refresh_token(db, user.id)
+    response = JSONResponse(content=_token_response(access_token, user.id, tenant.id, user.email))
+    set_refresh_cookie(response, refresh_token)
+    return response
 
 
-@router.post("/refresh", response_model=TokenResponse)
-def refresh(data: RefreshIn, db: Session = Depends(get_db)):
-    payload = decode_token(data.refresh_token)
-    if not payload or payload.get("type") != "refresh":
-        raise HTTPException(status_code=401, detail="Invalid refresh token")
-    user_id = payload.get("sub")
+@router.post("/refresh")
+def refresh(request: Request, db: Session = Depends(get_db)):
+    from app.config import get_settings
+    settings = get_settings()
+    cookie_token = request.cookies.get(settings.refresh_cookie_name)
+    if not cookie_token:
+        response = JSONResponse(content={"detail": "Missing refresh token"}, status_code=401)
+        clear_refresh_cookie(response)
+        return response
+    result = consume_refresh_token(db, cookie_token)
+    if not result:
+        response = JSONResponse(content={"detail": "Invalid or expired refresh token"}, status_code=401)
+        clear_refresh_cookie(response)
+        return response
+    new_refresh_token, user_id = result
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+        response = JSONResponse(content={"detail": "User not found"}, status_code=401)
+        clear_refresh_cookie(response)
+        return response
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
     if not tenant or not tenant.is_active:
-        raise HTTPException(status_code=403, detail="Tenant inactive")
-    return TokenResponse(
-        access_token=create_access_token({"sub": user.id, "tenant_id": tenant.id}),
-        refresh_token=create_refresh_token({"sub": user.id}),
-        user_id=user.id,
-        tenant_id=tenant.id,
-        email=user.email,
-    )
+        response = JSONResponse(content={"detail": "Tenant inactive"}, status_code=403)
+        clear_refresh_cookie(response)
+        return response
+    access_token = create_access_token({"sub": user.id, "tenant_id": tenant.id})
+    response = JSONResponse(content=_token_response(access_token, user.id, tenant.id, user.email))
+    set_refresh_cookie(response, new_refresh_token)
+    return response

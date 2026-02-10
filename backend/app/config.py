@@ -11,10 +11,13 @@ class Settings(BaseSettings):
     # Database (multi-tenant: one DB, tenant_id on tables)
     database_url: str = "sqlite:///./app.db"
 
-    # Auth (JWT for buyers)
+    # Auth: short-lived access token, refresh in HttpOnly cookie with DB rotation
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 60 * 24 * 7  # 7 days
-    jwt_refresh_expire_days: int = 30
+    jwt_expire_minutes: int = 15  # short-lived access token
+    refresh_cookie_name: str = "refresh_token"
+    refresh_cookie_max_age_days: int = 7
+    cookie_secure: bool = False  # set True in production (HTTPS)
+    cookie_same_site: str = "lax"
 
     # QuickBooks OAuth (from developer.intuit.com)
     qb_client_id: str = ""

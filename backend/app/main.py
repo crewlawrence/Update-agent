@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from app.db import engine, Base
 from app.api import auth, quickbooks, clients, pending_updates, agent_run
+import app.models  # noqa: F401 - ensure all models (including RefreshToken) are registered
 
 
 @asynccontextmanager

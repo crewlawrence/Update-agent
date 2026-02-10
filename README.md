@@ -13,9 +13,9 @@ Multi-tenant AI agent that connects to buyers’ QuickBooks via OAuth, detects m
 
 ## Stack
 
-- **Backend**: FastAPI, SQLAlchemy, JWT auth, Agno (OpenAI), intuit-oauth for QuickBooks.
+- **Backend**: FastAPI, SQLAlchemy, JWT auth (short-lived access tokens, refresh in HttpOnly cookie with DB rotation), Agno (OpenAI), intuit-oauth for QuickBooks.
 - **Frontend**: React, TypeScript, Vite, Tailwind CSS, React Router.
-- **DB**: SQLite by default (set `DATABASE_URL` for PostgreSQL).
+- **DB**: SQLite by default; **Neon** (or any PostgreSQL) for production—set `DATABASE_URL` to your Neon connection string.
 
 ## Setup
 
@@ -68,10 +68,17 @@ Open [http://localhost:5173](http://localhost:5173). Register a new account (cre
 3. **Pending updates** → Review, edit, delete, or send each draft.
 4. **Clients** → View synced clients (from QuickBooks).
 
+## Auth (safe setup)
+
+- **Access token**: Short-lived (default 15 min), returned in JSON and stored in memory/localStorage for API calls.
+- **Refresh token**: Stored in **HttpOnly cookie** (not readable by JS); rotated in DB on each use.
+- **Refresh**: `POST /api/auth/refresh` with `credentials: 'include'` to get a new access token (and new refresh cookie). Frontend calls this on load and can call when access token expires.
+
 ## API Overview
 
-- `POST /api/auth/register` – Register (creates tenant + user).
-- `POST /api/auth/login` – Login (returns JWT).
+- `POST /api/auth/register` – Register (creates tenant + user); sets refresh cookie.
+- `POST /api/auth/login` – Login; returns access token in body, sets refresh cookie.
+- `POST /api/auth/refresh` – Rotate refresh token (cookie), return new access token (no body; use `credentials: 'include'`).
 - `GET /api/qb/connect-url` – Get QuickBooks OAuth URL (requires auth).
 - `GET /api/qb/callback` – OAuth callback (state = tenant_id).
 - `GET /api/qb/status` – Whether QuickBooks is connected.
@@ -87,6 +94,13 @@ Open [http://localhost:5173](http://localhost:5173). Register a new account (cre
 
 - **Clean, modern UI**: Inter font, neutral primary palette, teal accent. Simple layout with header nav and card-based content.
 - **Robustness**: Token refresh for QuickBooks, per-tenant isolation, and update history to prevent duplicate sends.
+
+## Deploying with Neon
+
+1. Create a project at [neon.tech](https://neon.tech) and copy the connection string.
+2. Set `DATABASE_URL` to that string (it usually includes `?sslmode=require`).
+3. Tables are created on first run via `Base.metadata.create_all`. For production you may use Alembic migrations instead.
+4. Set `COOKIE_SECURE=true` and use HTTPS so the refresh cookie is sent only over secure connections.
 
 ## Extending
 

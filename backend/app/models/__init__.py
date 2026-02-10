@@ -1,6 +1,7 @@
 from app.models.tenant import Tenant, User
 from app.models.quickbooks import QuickBooksConnection
 from app.models.client import Client, ClientSnapshot, PendingUpdate, UpdateHistory
+from app.models.refresh_token import RefreshToken
 
 __all__ = [
     "Tenant",
@@ -10,4 +11,5 @@ __all__ = [
     "ClientSnapshot",
     "PendingUpdate",
     "UpdateHistory",
+    "RefreshToken",
 ]
