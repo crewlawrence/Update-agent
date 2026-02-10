@@ -1,28 +1,16 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 
 export default defineConfig({
-  base: '/', // ensures asset paths work
+  base: "/",
   plugins: [react()],
   server: {
-    port: 5173, // only for dev
+    port: 5173, // local dev only
     proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
-      '/health': {
-        target: 'http://localhost:8000',
+      "/api": {
+        target: "http://localhost:10000", // must match Express
         changeOrigin: true,
       },
     },
-  },
-  preview: {
-    host: '0.0.0.0', // important for Render
-    port: parseInt(process.env.PORT) || 4173, // use Render's port
-    allowedHosts: [
-      'update-agent.onrender.com', // Render hostname
-      'localhost',
-    ],
   },
 });
